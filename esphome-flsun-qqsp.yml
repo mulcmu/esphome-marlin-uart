@@ -1,0 +1,118 @@
+substitutions:
+  printername: flsun_qqsp
+  upper_printerename: QQSP
+  init: 'component_MarlinUART::instance(id(uart_bus));'
+
+esphome:
+  name: marlin-test  #printername
+  platform: ESP8266
+  board: esp01_1m
+  includes:
+    - esphome-marlin-uart.h
+   
+# Enable logging via web interface only
+logger:
+  baud_rate: 0
+  esp8266_store_log_strings_in_flash: False
+
+# Enable Home Assistant API
+api:
+
+ota:
+  password: !secret esp_home_ota_pw
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_pw
+  
+  # Optional manual IP
+  manual_ip:
+    static_ip: 192.168.0.236
+    gateway: 192.168.0.9
+    subnet: 255.255.255.0
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: ${upper_printerename} Fallback Hotspot
+    password: !secret esp_home_captive_pw
+
+captive_portal:
+
+# Sync time with Home Assistant.
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+uart:
+  id: uart_bus
+  tx_pin: GPIO1
+  rx_pin: GPIO3
+  baud_rate: 115200
+  
+custom_component:
+  - lambda: |-
+      auto c_mu = ${init}
+      //App.register_component(marlin_uart);
+      return {c_mu};
+
+sensor:
+  # Uptime sensor.
+  - platform: uptime
+    name: ${upper_printerename} Uptime
+
+  # WiFi Signal sensor.
+  - platform: wifi_signal
+    name: ${upper_printerename} WiFi Signal
+    update_interval: 60s
+  - platform: custom
+    lambda: |-
+      auto c_mu = ${init}
+      return {
+        c_mu->sensor_bedtemp,
+        c_mu->sensor_bedsetpoint,
+        c_mu->sensor_exttemp,
+        c_mu->sensor_extsetpoint,
+        c_mu->sensor_progress
+      };
+    sensors:
+      - name: ${upper_printerename} Bed Temperature
+        unit_of_measurement: C
+        icon: mdi:thermometer
+        accuracy_decimals: 1
+      - name: ${upper_printerename} Bed Setpoint
+        unit_of_measurement: C
+        icon: mdi:thermometer
+        accuracy_decimals: 1
+      - name: ${upper_printerename} Extruder Temperature
+        unit_of_measurement: C
+        icon: mdi:thermometer
+        accuracy_decimals: 1
+      - name: ${upper_printerename} Extruder Setpoint
+        unit_of_measurement: C
+        icon: mdi:thermometer
+        accuracy_decimals: 1
+      - name: ${upper_printerename} Progress
+        unit_of_measurement: "%"
+        icon: mdi:label-percent
+        accuracy_decimals: 1
+
+# Text sensors with general information.
+text_sensor:
+  # Expose WiFi information as sensors.
+  - platform: wifi_info
+    ip_address:
+      name: ${upper_printerename} IP
+  - platform: custom
+    lambda: |-
+        auto c_mu = ${init}
+        return {
+          c_mu->textsensor_printerState
+        };
+    text_sensors:
+        - name: ${upper_printerename} State
+
+  # Exposed switches.
+switch:
+  # Switch to restart the doorbell.
+  - platform: restart
+    name: ${upper_printerename} Restart
