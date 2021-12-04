@@ -9,7 +9,10 @@
 
 static const char *TAG = "component.MarlinUART";
 
-class component_MarlinUART : public PollingComponent, public UARTDevice {
+class component_MarlinUART : 
+        public PollingComponent,
+        public UARTDevice,
+        public CustomAPIDevice {
 
   public:
     Sensor *sensor_bedtemp;
@@ -44,9 +47,13 @@ class component_MarlinUART : public PollingComponent, public UARTDevice {
         write_str("\r\n\r\nM155 S10\r\n");  //Auto report temperatures every 10 seconds
         
         textsensor_printerState->publish_state("Unknown");
-        
         sensor_progress->publish_state(NAN);
         
+        //Allow home assistant to preheat the printer
+        register_service(&component_MarlinUART::set_bed_setpoint, "set_bed_setpoint",
+                 {"temp_degC"});
+        register_service(&component_MarlinUART::set_extruder_setpoint, "set_extruder_setpoint",
+                {"temp_degC"});       
     }
 
     void update() override
@@ -79,7 +86,34 @@ class component_MarlinUART : public PollingComponent, public UARTDevice {
         */
     }
 
+    //TODO define range
+    void set_bed_setpoint(int temp_degC) {
+        ESP_LOGD(TAG, "set_bed_setpoint().");
+        if(temp_degC <0)
+            return;
+        if(temp_degC > 80)
+            return;
+        
+        char buf[16];
+        std::sprintf(buf, "M140 S%d\r\n", temp_degC);
+        write_str(buf);
+        ESP_LOGD(TAG, buf);
+    }
 
+    //TODO define range
+    void set_extruder_setpoint(int temp_degC) {
+        ESP_LOGD(TAG, "set_extruder_setpoint().");
+        if(temp_degC <0)
+            return;
+        if(temp_degC > 240)
+            return;
+        
+        char buf[16];
+        std::sprintf(buf, "M104 S%d\r\n", temp_degC);
+        write_str(buf);
+        ESP_LOGD(TAG, buf);
+    }
+        
   private: 
     String MarlinOutput;
     String StateText;
@@ -102,8 +136,6 @@ class component_MarlinUART : public PollingComponent, public UARTDevice {
     
   
     void process_line() {
-        //char debugstring[256];
-        //MarlinOutput.toCharArray(debugstring,256);
         
         ESP_LOGD(TAG, MarlinOutput.c_str() );
         
@@ -156,9 +188,6 @@ class component_MarlinUART : public PollingComponent, public UARTDevice {
             MarlinOutput="";
             return;
         }
-        
-        
-        
         
         //SD printing byte 2467546/3281364
        if(MarlinOutput.startsWith(String("SD printing byte "))) {
