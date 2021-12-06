@@ -106,13 +106,16 @@ text_sensor:
     lambda: |-
         auto c_mu = ${init}
         return {
-          c_mu->textsensor_printerState
-        };
+          c_mu->textsensor_printerState,
+          c_mu->textsensor_elapsedTime,
+          c_mu->textsensor_remainingTime 
+          };
     text_sensors:
         - name: ${upper_printerename} State
-
-  # Exposed switches.
+        - name: ${upper_printerename} Elapsed Print Time
+        - name: ${upper_printerename} Remaining Print Time
+  
 switch:
-  # Switch to restart the doorbell.
+  # Switch to restart the ESP8266.
   - platform: restart
     name: ${upper_printerename} Restart

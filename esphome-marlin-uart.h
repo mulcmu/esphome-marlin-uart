@@ -6,6 +6,8 @@
 #include "esphome.h"
 
 #define PROGRESS_INTERVAL 15000 //15 seconds
+#define BED_MAX_TEMP 80
+#define EXT_MAX_TEMP 240
 
 static const char *TAG = "component.MarlinUART";
 
@@ -24,7 +26,9 @@ class component_MarlinUART :
     Sensor *sensor_progress;
     
     TextSensor *textsensor_printerState;
-
+    TextSensor *textsensor_elapsedTime;
+    TextSensor *textsensor_remainingTime;
+    
     static component_MarlinUART* instance(UARTComponent *parent)
     {
         static component_MarlinUART* INSTANCE = new component_MarlinUART(parent);
@@ -42,6 +46,9 @@ class component_MarlinUART :
         
         MarlinOutput.reserve(256);  //allocate hefty buffer for String object
         MarlinOutput = "";
+        
+        StateText.reserve(32);
+        S_time.reserve(32);
         
         flush();
         write_str("\r\n\r\nM155 S10\r\n");  //Auto report temperatures every 10 seconds
@@ -71,27 +78,19 @@ class component_MarlinUART :
                 process_line();
             }
         }
-        
-        
+       
         if(millis() - millisProgress > PROGRESS_INTERVAL)  {
-            write_str("M27\r\n");
+            write_str("M27\r\nM31\r\n");
             millisProgress = millis();
         }
-        // Only publish new states if there was a change
 
-        /*
-        if (this->cleaningBinarySensor->state != cleaningState) {
-            this->cleaningBinarySensor->publish_state(cleaningState);
-        } 
-        */
     }
 
-    //TODO define range
     void set_bed_setpoint(int temp_degC) {
         ESP_LOGD(TAG, "set_bed_setpoint().");
         if(temp_degC <0)
             return;
-        if(temp_degC > 80)
+        if(temp_degC > BED_MAX_TEMP)
             return;
         
         char buf[16];
@@ -100,12 +99,11 @@ class component_MarlinUART :
         ESP_LOGD(TAG, buf);
     }
 
-    //TODO define range
     void set_extruder_setpoint(int temp_degC) {
         ESP_LOGD(TAG, "set_extruder_setpoint().");
         if(temp_degC <0)
             return;
-        if(temp_degC > 240)
+        if(temp_degC > EXT_MAX_TEMP)
             return;
         
         char buf[16];
@@ -117,7 +115,9 @@ class component_MarlinUART :
   private: 
     String MarlinOutput;
     String StateText;
+    String S_time;
     unsigned long millisProgress=0;
+    float percentDone=0;
     
 
     component_MarlinUART(UARTComponent *parent) : PollingComponent(2000), UARTDevice(parent) 
@@ -132,6 +132,9 @@ class component_MarlinUART :
         this->sensor_progress = new Sensor();
     
         this->textsensor_printerState = new TextSensor();
+        this->textsensor_elapsedTime = new TextSensor();
+        this->textsensor_remainingTime = new TextSensor();
+
     }
     
   
@@ -203,14 +206,62 @@ class component_MarlinUART :
                 sensor_progress->publish_state(NAN);
                         }
             else  {
-                sensor_progress->publish_state( (float) current / (float) total * 100.0);
+                percentDone = (float) current / (float) total;
+                sensor_progress->publish_state( percentDone * 100.0);
             }
             
             MarlinOutput="";
             return;
         } 
         
-        
+        //echo:Print time: 
+       if(MarlinOutput.startsWith(String("echo:Print time: "))) {
+            int d=0, h=0, m=0, s=0, current=0, total=0, remaining=0;
+            S_time = MarlinOutput.substring(16);
+            
+            ESP_LOGD(TAG,S_time.c_str());
+            
+            if (sscanf(S_time.c_str() ,"%dd %dh %dm %ds", &d, &h, &m, &s)!=4)  {
+                d=0;
+                if (sscanf(S_time.c_str() ,"%dh %dm %ds", &h, &m, &s)!=3)  {
+                    d=0; h=0;
+                    if (sscanf(S_time.c_str() ,"%dm %ds", &m, &s)!=2)  {
+                        d=0; h=0; m=0;
+                        if (sscanf(S_time.c_str() ,"%ds", &s)!=1)  {
+                            MarlinOutput="";
+                            return;
+                        }
+                    }
+                }
+            }
+            
+            current = d*24*60*60 + h*60*60 + m*60 + s;
+            ESP_LOGD(TAG,String(current).c_str());
+            
+            textsensor_elapsedTime->publish_state(S_time.c_str());
+            
+            //Start G-Code needs to include M77 & M75 to stop and restart print timer
+            //once bed & extruder are heated.  Otherwise preheat time is included and 
+            //messes up the estimate considerably.
+            if(percentDone !=0) {
+                total = (float) current / percentDone;
+                remaining = total - current;
+                if (remaining > (60*60) ) {
+                    S_time = String( (float) remaining / 3600.0, 2);
+                    S_time += " Hours";
+                }
+                else  {
+                    S_time = String( (float) remaining / 60.0, 2);
+                    S_time += " Minutes";
+                }
+                
+                textsensor_remainingTime->publish_state(S_time.c_str());
+            }           
+            MarlinOutput="";
+            return;
+        }  
+
+        // TODO Only publish new states if there was a change
         //State
         //action:prompt_begin FilamentRunout T0
         if(MarlinOutput.indexOf(String("FilamentRunout")) != -1) {
@@ -219,6 +270,7 @@ class component_MarlinUART :
             return;
         }
         
+        //TODO confirm runnout trumps printing paused.
         if(MarlinOutput.startsWith(String("echo:busy: paused"))) {
             if(textsensor_printerState->state != "Filament Runout") {
                 textsensor_printerState->publish_state("Printing Paused");
