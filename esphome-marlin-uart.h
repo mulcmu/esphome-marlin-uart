@@ -243,7 +243,7 @@ class component_MarlinUART :
             //Start G-Code needs to include M77 & M75 to stop and restart print timer
             //once bed & extruder are heated.  Otherwise preheat time is included and 
             //messes up the estimate considerably.
-            if(percentDone !=0) {
+            if(percentDone != 0.0 && percentDone != 100.0) {
                 total = (float) current / percentDone;
                 remaining = total - current;
                 if (remaining > (60*60) ) {
@@ -281,7 +281,9 @@ class component_MarlinUART :
                 
         if(MarlinOutput.startsWith(String("Done printing"))) {
             textsensor_printerState->publish_state("Finished Printing");
-            sensor_progress->publish_state(NAN);
+            textsensor_remainingTime->publish_state("0.00 Minutes");
+            percentDone=100.0;
+            sensor_progress->publish_state(100.0);
             MarlinOutput="";
             return;
         }
@@ -292,6 +294,10 @@ class component_MarlinUART :
             return;
         }
         
+        //Error:Printer halted
+        //Error:Heating failed
+        
+        //Cooling after finished printing
         
         //reset string for next line
         MarlinOutput="";
