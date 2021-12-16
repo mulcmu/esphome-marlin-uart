@@ -1,10 +1,10 @@
 substitutions:
-  printername: flsun_qqsp
+  printername: flsun-qqsp
   upper_printerename: QQSP
   init: 'component_MarlinUART::instance(id(uart_bus));'
 
 esphome:
-  name: marlin-test  #printername
+  name: ${printername}
   platform: ESP8266
   board: esp01_1m
   includes:
@@ -23,7 +23,7 @@ ota:
 
 wifi:
   ssid: !secret wifi_ssid
-  password: !secret wifi_pw
+  password: !secret wifi_password
   
   # Optional manual IP
   manual_ip:
@@ -115,7 +115,7 @@ text_sensor:
         - name: ${upper_printerename} Elapsed Print Time
         - name: ${upper_printerename} Remaining Print Time
   
-switch:
+button:
   # Switch to restart the ESP8266.
   - platform: restart
     name: ${upper_printerename} Restart
