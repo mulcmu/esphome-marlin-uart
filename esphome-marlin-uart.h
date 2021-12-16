@@ -5,9 +5,22 @@
 
 #include "esphome.h"
 
-#define PROGRESS_INTERVAL 15000 //15 seconds
-#define BED_MAX_TEMP 80
-#define EXT_MAX_TEMP 240
+//ComponentMarlinUart
+
+#define CMU_PROGRESS_INTERVAL 15000 //15 seconds
+#define CMU_BED_MAX_TEMP 80
+#define CMU_EXT_MAX_TEMP 240
+
+#define CMU_STATE_UNKNOWN 0
+#define CMU_STATE_IDLE 1
+#define CMU_STATE_PREHEAT 2
+#define CMU_STATE_PRINTING 3
+#define CMU_STATE_RUNOUT 4
+#define CMU_STATE_PAUSED 5
+#define CMU_STATE_ABORT 6
+#define CMU_STATE_FINISHED 7
+#define CMU_STATE_HALTED 8
+#define CMU_STATE_COOLING 9
 
 static const char *TAG = "component.MarlinUART";
 
@@ -44,19 +57,17 @@ class component_MarlinUART :
     {
         ESP_LOGD(TAG, "setup().");
         
-        MarlinOutput.reserve(256);  //allocate hefty buffer for String object
+        MarlinOutput.reserve(256);  //allocate hefty buffersfor String objects
         MarlinOutput = "";
-        
         StateText.reserve(32);
         S_time.reserve(32);
         
         flush();
-        write_str("\r\n\r\nM155 S10\r\n");  //Auto report temperatures every 10 seconds
+        write_str("\r\n\r\nM155 S10\r\n");  //Gcode command to auto report temperatures every 10 seconds
         
-        textsensor_printerState->publish_state("Unknown");
-        sensor_progress->publish_state(NAN);
+        set_state(CMU_STATE_UNKNOWN);
         
-        //Allow home assistant to preheat the printer
+        //Services to allow home assistant to preheat the printer
         register_service(&component_MarlinUART::set_bed_setpoint, "set_bed_setpoint",
                  {"temp_degC"});
         register_service(&component_MarlinUART::set_extruder_setpoint, "set_extruder_setpoint",
@@ -67,9 +78,8 @@ class component_MarlinUART :
     {
         ESP_LOGV(TAG, "update().");
 
-        int16_t distance;
-        uint16_t voltage;
-        bool publishJson;
+        if (state == CMU_STATE_HALTED) 
+            return;
         
         while ( available() ) {
             char c = read();
@@ -79,9 +89,10 @@ class component_MarlinUART :
             }
         }
        
-        if(millis() - millisProgress > PROGRESS_INTERVAL)  {
-            write_str("M27\r\nM31\r\n");
+        if(millis() - millisProgress > CMU_PROGRESS_INTERVAL)  {
             millisProgress = millis();
+            if(state==CMU_STATE_PRINTING)
+                write_str("M27\r\nM31\r\n");  //Gcode to get remaining time and file progress
         }
 
     }
@@ -90,7 +101,7 @@ class component_MarlinUART :
         ESP_LOGD(TAG, "set_bed_setpoint().");
         if(temp_degC <0)
             return;
-        if(temp_degC > BED_MAX_TEMP)
+        if(temp_degC > CMU_BED_MAX_TEMP)
             return;
         
         char buf[16];
@@ -103,7 +114,7 @@ class component_MarlinUART :
         ESP_LOGD(TAG, "set_extruder_setpoint().");
         if(temp_degC <0)
             return;
-        if(temp_degC > EXT_MAX_TEMP)
+        if(temp_degC > CMU_EXT_MAX_TEMP)
             return;
         
         char buf[16];
@@ -118,6 +129,7 @@ class component_MarlinUART :
     String S_time;
     unsigned long millisProgress=0;
     float percentDone=0;
+    uint8_t state=CMU_STATE_UNKNOWN;
     
 
     component_MarlinUART(UARTComponent *parent) : PollingComponent(2000), UARTDevice(parent) 
@@ -137,12 +149,89 @@ class component_MarlinUART :
 
     }
     
+    void set_state(uint8_t newstate)  {
+        
+        if (state==newstate)
+            return;
+        
+        switch (newstate)  {
+            case CMU_STATE_UNKNOWN:
+                textsensor_printerState->publish_state("Unknown");
+                textsensor_elapsedTime->publish_state("Unknown");
+                textsensor_remainingTime->publish_state("Unknown");
+                sensor_exttemp->publish_state(NAN);
+                sensor_extsetpoint->publish_state(NAN);
+                sensor_bedtemp->publish_state(NAN);
+                sensor_bedsetpoint->publish_state(NAN);
+                sensor_progress->publish_state(NAN);
+                break;
+        
+            case CMU_STATE_IDLE:
+                textsensor_printerState->publish_state("Idle");
+                textsensor_elapsedTime->publish_state("Unknown");
+                textsensor_remainingTime->publish_state("Unknown");
+                sensor_progress->publish_state(NAN);
+                break;
+        
+            case CMU_STATE_PREHEAT:
+                textsensor_printerState->publish_state("Preheat");
+                textsensor_elapsedTime->publish_state("Unknown");
+                textsensor_remainingTime->publish_state("Unknown");
+                sensor_progress->publish_state(NAN);
+                break;
+        
+            case CMU_STATE_PRINTING:
+                textsensor_printerState->publish_state("Printing");
+                break;
+        
+            case CMU_STATE_RUNOUT:
+                textsensor_printerState->publish_state("Runout");
+                break;
+        
+            case CMU_STATE_PAUSED:
+                textsensor_printerState->publish_state("Paused");
+                break;
+        
+            case CMU_STATE_ABORT:
+                textsensor_printerState->publish_state("Aborted");
+                textsensor_elapsedTime->publish_state("Unknown");
+                textsensor_remainingTime->publish_state("Unknown");
+                sensor_progress->publish_state(NAN);
+                break;
+        
+            case CMU_STATE_FINISHED:
+                textsensor_printerState->publish_state("Finished");
+                break;
+        
+            case CMU_STATE_HALTED:
+                textsensor_printerState->publish_state("Halted");
+                textsensor_elapsedTime->publish_state("Unknown");
+                textsensor_remainingTime->publish_state("Unknown");
+                sensor_exttemp->publish_state(NAN);
+                sensor_extsetpoint->publish_state(NAN);
+                sensor_bedtemp->publish_state(NAN);
+                sensor_bedsetpoint->publish_state(NAN);
+                sensor_progress->publish_state(NAN);
+                break;
+        
+            case CMU_STATE_COOLING:
+                textsensor_printerState->publish_state("Cooling");
+                textsensor_elapsedTime->publish_state("Unknown");
+                textsensor_remainingTime->publish_state("Unknown");
+                sensor_progress->publish_state(NAN);                
+                break;
+                
+        }
+        
+        state = newstate;
+
+    }
   
     void process_line() {
         
         ESP_LOGD(TAG, MarlinOutput.c_str() );
         
-        // Auto reported temperature
+        // Auto reported temperature format
         // T:157.35 /0.00 B:56.56 /0.00 @:0 B@:0
         // T:19.57 /0.00 B:20.12 /0.00 @:0 B@:
         if(MarlinOutput.startsWith(String(" T:"))) {
@@ -204,7 +293,8 @@ class component_MarlinUART :
             
             if (total==0)  {
                 sensor_progress->publish_state(NAN);
-                        }
+                percentDone=0.0;
+            }
             else  {
                 percentDone = (float) current / (float) total;
                 sensor_progress->publish_state( percentDone * 100.0);
@@ -261,26 +351,25 @@ class component_MarlinUART :
             return;
         }  
 
-        // TODO Only publish new states if there was a change
-        //State
+        //State changes //////////////////////////////
+        
         //action:prompt_begin FilamentRunout T0
         if(MarlinOutput.indexOf(String("FilamentRunout")) != -1) {
-            textsensor_printerState->publish_state("Filament Runout");
+            set_state(CMU_STATE_RUNOUT);
             MarlinOutput="";
             return;
         }
         
-        //TODO confirm runnout trumps printing paused.
         if(MarlinOutput.startsWith(String("echo:busy: paused"))) {
-            if(textsensor_printerState->state != "Filament Runout") {
-                textsensor_printerState->publish_state("Printing Paused");
+            if(state != CMU_STATE_RUNOUT) {
+                set_state(CMU_STATE_PAUSED);
             }
             MarlinOutput="";
             return;
         }
                 
         if(MarlinOutput.startsWith(String("Done printing"))) {
-            textsensor_printerState->publish_state("Finished Printing");
+            set_state(CMU_STATE_FINISHED);
             textsensor_remainingTime->publish_state("0.00 Minutes");
             percentDone=100.0;
             sensor_progress->publish_state(100.0);
@@ -288,16 +377,23 @@ class component_MarlinUART :
             return;
         }
         
-        if(MarlinOutput.startsWith(String("echo:busy: processing"))) {
-            textsensor_printerState->publish_state("Printing");
+        if(MarlinOutput.startsWith(String("////action:resume"))) {
+            set_state(CMU_STATE_PRINTING);
             MarlinOutput="";
             return;
         }
         
-        //Error:Printer halted
-        //Error:Heating failed
-        
-        //Cooling after finished printing
+        if(MarlinOutput.startsWith(String("Error:Printer halted"))) {
+            set_state(CMU_STATE_HALTED);
+            MarlinOutput="";
+            return;
+        }
+                
+        if(MarlinOutput.startsWith(String("////action:notification Print Aborted"))) {
+            set_state(CMU_STATE_ABORT);
+            MarlinOutput="";
+            return;
+        }        
         
         //reset string for next line
         MarlinOutput="";
