@@ -236,47 +236,25 @@ class component_MarlinUART :
         // T:19.57 /0.00 B:20.12 /0.00 @:0 B@:
         if(MarlinOutput.startsWith(String(" T:"))) {
 
-            //Extruder temp
-            short start=3;
-            short end = MarlinOutput.indexOf('/');
-            if (end == -1) {
-                MarlinOutput="";
-                return;
-            }
+            float et, es, bt, bs;
+            if (sscanf(MarlinOutput.c_str() ," T:%f /%f B:%f /%f", &et, &es, &bt, &bs) == 4)  {
+                sensor_exttemp->publish_state(et);
+                sensor_extsetpoint->publish_state(es);
+                sensor_bedtemp->publish_state(bt);
+                sensor_bedsetpoint->publish_state(bs);
                 
-            float t = MarlinOutput.substring(start,end).toFloat();
-            sensor_exttemp->publish_state(t);
-
-            //Extruder setpoint
-            start = end + 1;
-            end = MarlinOutput.indexOf(' ', start);
-            if (end == -1) {
-                MarlinOutput="";
-                return;
+                if(bs==0.0 && es==0.0)  {
+                    if(et < 32.0 && bt < 32.0)         //TODO define constants for these
+                        set_state(CMU_STATE_IDLE);
+                    else if(et < 150.0 && bt < 55.0)
+                        set_state(CMU_STATE_COOLING);
+                }
+                if(bs!=0.0 || es!=0.0)  {
+                    if(state == CMU_STATE_COOLING || state == CMU_STATE_IDLE)
+                        set_state(CMU_STATE_PREHEAT);
+                }
+                
             }
-            t = MarlinOutput.substring(start,end).toFloat();
-            sensor_extsetpoint->publish_state(t);
-            
-            //Bed temp
-            start = end + 3;
-            end = MarlinOutput.indexOf('/', start);
-            if (end == -1) {
-                MarlinOutput="";
-                return;
-            }
-            t = MarlinOutput.substring(start,end).toFloat();
-            sensor_bedtemp->publish_state(t);
-            
-            //Bed setpoint
-            start = end + 1;
-            end = MarlinOutput.indexOf(' ', start);
-            if (end == -1) {
-                MarlinOutput="";
-                return;
-            }
-            t = MarlinOutput.substring(start,end).toFloat();
-            sensor_bedsetpoint->publish_state(t);
-            
             MarlinOutput="";
             return;
         }
@@ -288,8 +266,8 @@ class component_MarlinUART :
             current = MarlinOutput.substring(17).toInt();
             total = MarlinOutput.substring(MarlinOutput.indexOf('/')+1).toInt();
             
-            ESP_LOGD(TAG,String(current).c_str());
-            ESP_LOGD(TAG,String(total).c_str());
+            //ESP_LOGD(TAG,String(current).c_str());
+            //ESP_LOGD(TAG,String(total).c_str());
             
             if (total==0)  {
                 sensor_progress->publish_state(NAN);
@@ -309,7 +287,7 @@ class component_MarlinUART :
             int d=0, h=0, m=0, s=0, current=0, total=0, remaining=0;
             S_time = MarlinOutput.substring(16);
             
-            ESP_LOGD(TAG,S_time.c_str());
+            //ESP_LOGD(TAG,S_time.c_str());
             
             if (sscanf(S_time.c_str() ,"%dd %dh %dm %ds", &d, &h, &m, &s)!=4)  {
                 d=0;
@@ -326,7 +304,7 @@ class component_MarlinUART :
             }
             
             current = d*24*60*60 + h*60*60 + m*60 + s;
-            ESP_LOGD(TAG,String(current).c_str());
+            //ESP_LOGD(TAG,String(current).c_str());
             
             textsensor_elapsedTime->publish_state(S_time.c_str());
             
@@ -377,7 +355,7 @@ class component_MarlinUART :
             return;
         }
         
-        if(MarlinOutput.startsWith(String("////action:resume"))) {
+        if(MarlinOutput.startsWith(String("//action:resume"))) {
             set_state(CMU_STATE_PRINTING);
             MarlinOutput="";
             return;
@@ -388,8 +366,8 @@ class component_MarlinUART :
             MarlinOutput="";
             return;
         }
-                
-        if(MarlinOutput.startsWith(String("////action:notification Print Aborted"))) {
+
+        if(MarlinOutput.startsWith(String("//action:notification Print Aborted"))) {
             set_state(CMU_STATE_ABORT);
             MarlinOutput="";
             return;
