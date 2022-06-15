@@ -6,6 +6,8 @@ Custom ESPHome component for integrating a FLSUN QQ-S Pro printer with Home Assi
 - HA services to set extruder and bed temperature setpoints.
 - Percent complete, elapsed print time, and estimated remaining time are provided.  *Include M77 then M75 in start gcode to reset the print timer after bed and nozzle are heated.  Otherwise preheat time is included when printing from SD card and causes estimate to be inaccurate.*
 
+![](https://user-images.githubusercontent.com/10102873/173958052-1b5bf449-82f8-43e0-84c4-f98c7ae0ed32.png)
+
 For initial installation follow the https://github.com/Foxies-CSTL/Marlin_2.0.x/wiki/5.Firmware-Wifi guide to flash the MksWifi.bin.  You will need to build the firmware in ESPHome and rename the bin file to MksWifi.bin.  After initial installation, OTA updates via ESPHome work well.  Alternatively, module can be removed and flashed externally if you can adapt it properly to a programmer.
 
 TODO:
