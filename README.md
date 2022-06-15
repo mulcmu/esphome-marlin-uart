@@ -13,4 +13,5 @@ TODO:
 - Evaluate upload file to SD card capability
 - Add support for multiple extruders
 - Evaluate using slicer computed time
+- Format repository to be compatible with ESPHome External Components
 
