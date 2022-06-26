@@ -364,7 +364,7 @@ class component_MarlinUART :
         
         //Cutoff text gets sent when extruder and nozzle are fully preheated when
         //SD print is started.
-        if(MarlinOutput.startsWith(String("ction:resume"))) {
+        if(MarlinOutput.startsWith(String("//action:resume"))) {
             set_state(CMU_STATE_PRINTING);
             MarlinOutput="";
             return;
