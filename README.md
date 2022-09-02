@@ -21,6 +21,8 @@ This custom component for ESPhome supports the following:
 
   *Above start gcode outputs the Cura estimated print time at start of print.  If this is included the slicer estimate print time will be used instead of estimated based on elapsed print time and file progress percentage.*
 
+![](https://user-images.githubusercontent.com/10102873/173958052-1b5bf449-82f8-43e0-84c4-f98c7ae0ed32.png)
+
 For initial installation follow the https://github.com/Foxies-CSTL/Marlin_2.0.x/wiki/5.Firmware-Wifi guide to flash the MksWifi.bin.  You will need to build the firmware in ESPHome and rename the bin file to MksWifi.bin.  After initial installation, OTA updates via ESPHome work well.  Alternatively, module can be removed and flashed externally if you can adapt it properly to a programmer.
 
 TODO:
