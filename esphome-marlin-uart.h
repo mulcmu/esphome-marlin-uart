@@ -128,6 +128,7 @@ class component_MarlinUART :
     String StateText;
     String S_time;
     unsigned long millisProgress=0;
+    unsigned long total=0;
     float percentDone=0;
     uint8_t state=CMU_STATE_UNKNOWN;
     
@@ -231,13 +232,19 @@ class component_MarlinUART :
         
         ESP_LOGD(TAG, MarlinOutput.c_str() );
         
-        // Auto reported temperature format
+        // Auto reported temperature format without SHOW_TEMP_ADC_VALUES defined in Marlin configuration
         // T:157.35 /0.00 B:56.56 /0.00 @:0 B@:0
-        // T:19.57 /0.00 B:20.12 /0.00 @:0 B@:
+        // Auto reported temperature format with SHOW_TEMP_ADC_VALUES defined in Marlin configuration
+        //T:219.64 /220.00 (313.7500) B:60.05 /60.00 (3426.9375) @:86 B@:46
+
         if(MarlinOutput.startsWith(String(" T:"))) {
 
-            float et, es, bt, bs;
-            if (sscanf(MarlinOutput.c_str() ," T:%f /%f B:%f /%f", &et, &es, &bt, &bs) == 4)  {
+            float et, es, ea, bt, bs, ba;
+            if       (
+                (sscanf(MarlinOutput.c_str() ," T:%f /%f B:%f /%f", &et, &es, &bt, &bs) == 4  ) ||
+                (sscanf(MarlinOutput.c_str() ," T:%f /%f (%f) B:%f /%f (%f)", &et, &es, &ea, &bt, &bs, &ba) == 6 )
+                     )
+                {
                 sensor_exttemp->publish_state(et);
                 sensor_extsetpoint->publish_state(es);
                 sensor_bedtemp->publish_state(bt);
@@ -283,8 +290,11 @@ class component_MarlinUART :
         } 
         
         //echo:Print time: 
+        //echo:Print time: 3h 6m 49s
        if(MarlinOutput.startsWith(String("echo:Print time: "))) {
-            int d=0, h=0, m=0, s=0, current=0, total=0, remaining=0;
+            int d=0, h=0, m=0, s=0;
+            unsigned long current=0, remaining=0;
+            
             S_time = MarlinOutput.substring(16);
             
             //ESP_LOGD(TAG,S_time.c_str());
@@ -311,9 +321,14 @@ class component_MarlinUART :
             //Start G-Code needs to include M77 & M75 to stop and restart print timer
             //once bed & extruder are heated.  Otherwise preheat time is included and 
             //messes up the estimate considerably.
+            
+            //TODO:  see if runout and pauses stops elapsed print timer
             if(percentDone != 0.0 && percentDone != 100.0) {
-                total = (float) current / percentDone;
-                remaining = total - current;
+                if(total==0)
+                    remaining = ((float) current / percentDone) - current;  //estimate total from elapsed and progress
+                else
+                    remaining = total - current;  //use slicer estimate
+                
                 if (remaining > (60*60) ) {
                     S_time = String( (float) remaining / 3600.0, 2);
                     S_time += " Hours";
@@ -329,6 +344,7 @@ class component_MarlinUART :
             return;
         }  
 
+            
         //State changes //////////////////////////////
         
         //action:prompt_begin FilamentRunout T0
@@ -350,6 +366,7 @@ class component_MarlinUART :
             set_state(CMU_STATE_FINISHED);
             textsensor_remainingTime->publish_state("0.00 Minutes");
             percentDone=100.0;
+            total=0;
             sensor_progress->publish_state(100.0);
             MarlinOutput="";
             return;
@@ -368,6 +385,23 @@ class component_MarlinUART :
             set_state(CMU_STATE_PRINTING);
             MarlinOutput="";
             return;
+        }
+        
+        //Estimated print time 00:44:14;
+        //Estimated print time 27:57:55;
+        if(MarlinOutput.startsWith(String("Estimated print time "))) {
+            int h=0, m=0, s=0;
+            S_time = MarlinOutput.substring(20);
+            
+            //ESP_LOGD(TAG,S_time.c_str());
+            
+            if (sscanf(S_time.c_str() ,"%d:%d:%d", &h, &m, &s)!=3)  {
+                total = 0;
+                MarlinOutput="";
+                return;
+            }
+            
+            total = h*60*60 + m*60 + s;
         }
         
         if(MarlinOutput.startsWith(String("Error:Printer halted"))) {
