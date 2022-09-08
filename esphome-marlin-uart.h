@@ -323,8 +323,9 @@ class component_MarlinUART :
             //messes up the estimate considerably.
             
             //TODO:  see if runout and pauses stops elapsed print timer
+            
             if(percentDone != 0.0 && percentDone != 100.0) {
-                if(total==0)
+                if(total < current)  //if slicer estimate is 0 or value has been exceeded default to estimated time remaining
                     remaining = ((float) current / percentDone) - current;  //estimate total from elapsed and progress
                 else
                     remaining = total - current;  //use slicer estimate
