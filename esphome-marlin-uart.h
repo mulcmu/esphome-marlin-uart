@@ -57,7 +57,7 @@ class component_MarlinUART :
     {
         ESP_LOGD(TAG, "setup().");
         
-        MarlinOutput.reserve(256);  //allocate hefty buffersfor String objects
+        MarlinOutput.reserve(256);  //allocate hefty buffers for String objects
         MarlinOutput = "";
         StateText.reserve(32);
         S_time.reserve(32);
@@ -227,6 +227,35 @@ class component_MarlinUART :
         state = newstate;
 
     }
+
+    int process_tempfeedback(float* et, float* es, float* bt, float* bs) {
+        float dc; //don't care
+
+        //Preprocess remove all spaces and leading ok
+        MarlinOutput.replace(" ", "");
+        MarlinOutput.replace("ok", "");
+
+        //T:157.35/0.00B:56.56/0.00@:0B@:0
+        //T:201/202B:117/120
+        //T:201/202B:117/120C:49.3/50
+        //T:20.2/0.0B:19.1/0.0T0:20.2/0.0@:0B@:0P:19.8A:26.4         
+        if(sscanf(MarlinOutput.c_str() ,"T:%f/%fB:%f/%f", et, es, bt, bs) == 4 )
+            return 1;
+
+        //T:219.64/220.00(313.7500)B:60.05/60.00(3426.9375)@:86B@:46
+        if(sscanf(MarlinOutput.c_str() ,"T:%f/%f(%f)B:%f/%f(%f)", et, es, &dc, bt, bs, &dc) == 6 )
+            return 2;
+
+        //T:201/202T0:110/110T1:23/0B:117/120C:49.3/50
+        if(sscanf(MarlinOutput.c_str() ,"T:%f/%fT0:%f/%fT1:%f/%fB:%f/%f", et, es, &dc, &dc, &dc, &dc, bt, bs) == 8 )
+            return 3;  
+            
+        //T0:110/110T1:23/0B:117/120
+        if(sscanf(MarlinOutput.c_str() ,"T0:%f/%fT1:%f/%fB:%f/%f", et, es, &dc, &dc, bt, bs) == 6 )
+            return 4;                       
+
+        return 0;
+    }
   
     void process_line() {
         
@@ -234,29 +263,36 @@ class component_MarlinUART :
         
         // Auto reported temperature format without SHOW_TEMP_ADC_VALUES defined in Marlin configuration
         // T:157.35 /0.00 B:56.56 /0.00 @:0 B@:0
+        
         // Auto reported temperature format with SHOW_TEMP_ADC_VALUES defined in Marlin configuration
-        //T:219.64 /220.00 (313.7500) B:60.05 /60.00 (3426.9375) @:86 B@:46
+        // T:219.64 /220.00 (313.7500) B:60.05 /60.00 (3426.9375) @:86 B@:46
 
-        if(MarlinOutput.startsWith(String(" T:"))) {
+        //https://reprap.org/wiki/G-code#M105:_Get_Extruder_Temperature
+        // ok T:201 /202 B:117 /120
+        // ok T:201 /202 B:117 /120 C:49.3 /50
+        // ok T:201 /202 T0:110 /110 T1:23 /0 B:117 /120 C:49.3 /50
+        // ok T0:110 /110 T1:23 /0 B:117 /120
+        // ok T:20.2 /0.0 B:19.1 /0.0 T0:20.2 /0.0 @:0 B@:0 P:19.8 A:26.4
 
-            float et, es, ea, bt, bs, ba;
-            if       (
-                (sscanf(MarlinOutput.c_str() ," T:%f /%f B:%f /%f", &et, &es, &bt, &bs) == 4  ) ||
-                (sscanf(MarlinOutput.c_str() ," T:%f /%f (%f) B:%f /%f (%f)", &et, &es, &ea, &bt, &bs, &ba) == 6 )
-                     )
-                {
-                sensor_exttemp->publish_state(et);
-                sensor_extsetpoint->publish_state(es);
-                sensor_bedtemp->publish_state(bt);
-                sensor_bedsetpoint->publish_state(bs);
+        if(MarlinOutput.startsWith(String(" T:"))   || 
+           MarlinOutput.startsWith(String("T:"))    ||
+           MarlinOutput.startsWith(String("ok T:")) ||
+           MarlinOutput.startsWith(String(" ok T:"))   ) {
+
+            float extruderTemp, extruderSet, bedTemp, bedSet;
+            if (process_tempfeedback(&extruderTemp, &extruderSet, &bedTemp, &bedSet) != 0)  {
+                sensor_exttemp->publish_state(extruderTemp);
+                sensor_extsetpoint->publish_state(extruderSet);
+                sensor_bedtemp->publish_state(bedTemp);
+                sensor_bedsetpoint->publish_state(bedSet);
                 
-                if(bs==0.0 && es==0.0)  {
-                    if(et < 32.0 && bt < 32.0)         //TODO define constants for these
+                if(bedSet==0.0 && extruderSet==0.0)  {
+                    if(extruderTemp < 32.0 && bedTemp < 32.0)         //TODO define constants for these
                         set_state(CMU_STATE_IDLE);
-                    else if(et < 150.0 && bt < 55.0)
+                    else if(extruderTemp < 150.0 && bedTemp < 55.0)
                         set_state(CMU_STATE_COOLING);
                 }
-                if(bs!=0.0 || es!=0.0)  {
+                if(bedSet!=0.0 || extruderSet!=0.0)  {
                     if(state == CMU_STATE_COOLING || state == CMU_STATE_IDLE)
                         set_state(CMU_STATE_PREHEAT);
                 }
