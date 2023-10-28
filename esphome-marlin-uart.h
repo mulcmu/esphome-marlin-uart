@@ -391,15 +391,14 @@ class component_MarlinUART :
             return;
         }
         
-        if(MarlinOutput.startsWith(String("echo:busy: paused"))) {
+        if(MarlinOutput.indexOf(String("paused")) != -1) {
             if(state != CMU_STATE_RUNOUT) {
                 set_state(CMU_STATE_PAUSED);
             }
             MarlinOutput="";
             return;
         }
-                
-        if(MarlinOutput.startsWith(String("Done printing"))) {
+        if(MarlinOutput.indexOf(String("Done printing")) != -1) {                
             set_state(CMU_STATE_FINISHED);
             textsensor_remainingTime->publish_state("0.00 Minutes");
             percentDone=100.0;
@@ -409,21 +408,13 @@ class component_MarlinUART :
             return;
         }
         
-        //TODO when extruder and bed are fully preheated this doesn't seem to get sent
-        if(MarlinOutput.startsWith(String("//action:resume"))) {
+        //Set printing once preheat done or after pause/runnout
+        if(MarlinOutput.indexOf(String("resume")) != -1) {
             set_state(CMU_STATE_PRINTING);
             MarlinOutput="";
             return;
         }
-        
-        //Cutoff text gets sent when extruder and nozzle are fully preheated when
-        //SD print is started.
-        if(MarlinOutput.startsWith(String("ction:resume"))) {
-            set_state(CMU_STATE_PRINTING);
-            MarlinOutput="";
-            return;
-        }
-        
+
         //Estimated print time 00:44:14;
         //Estimated print time 27:57:55;
         if(MarlinOutput.startsWith(String("Estimated print time "))) {
@@ -440,14 +431,14 @@ class component_MarlinUART :
             
             total = h*60*60 + m*60 + s;
         }
-        
-        if(MarlinOutput.startsWith(String("Error:Printer halted"))) {
+
+        if(MarlinOutput.indexOf(String("Printer halted")) != -1) {                
             set_state(CMU_STATE_HALTED);
             MarlinOutput="";
             return;
         }
 
-        if(MarlinOutput.startsWith(String("//action:notification Print Aborted"))) {
+        if(MarlinOutput.indexOf(String("Print Aborted")) != -1) {                
             set_state(CMU_STATE_ABORT);
             MarlinOutput="";
             return;
