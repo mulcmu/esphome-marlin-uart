@@ -105,7 +105,7 @@ class component_MarlinUART :
             return;
         
         char buf[16];
-        std::sprintf(buf, "M140 S%d\r\n", temp_degC);
+        snprintf(buf, sizeof buf, "M140 S%d\r\n", temp_degC);
         write_str(buf);
         ESP_LOGD(TAG, buf);
     }
@@ -118,21 +118,22 @@ class component_MarlinUART :
             return;
         
         char buf[16];
-        std::sprintf(buf, "M104 S%d\r\n", temp_degC);
+        snprintf(buf, sizeof buf, "M104 S%d\r\n", temp_degC);
         write_str(buf);
         ESP_LOGD(TAG, buf);
     }
         
   private: 
-    String MarlinOutput;
-    String StateText;
-    String S_time;
+    std::string MarlinOutput;
+    std::string StateText;
+    std::string S_time;
+    char buf[64]={0};
+
     unsigned long millisProgress=0;
     unsigned long total=0;
     float percentDone=0;
     uint8_t state=CMU_STATE_UNKNOWN;
     
-
     component_MarlinUART(UARTComponent *parent) : PollingComponent(2000), UARTDevice(parent) 
     {
        
@@ -232,9 +233,11 @@ class component_MarlinUART :
         float dc; //don't care
 
         //Preprocess remove all spaces and leading ok
-        MarlinOutput.replace(" ", "");
-        MarlinOutput.replace("ok", "");
-
+        while(MarlinOutput.find(' ') != std::string::npos)
+            MarlinOutput.erase(MarlinOutput.find(' '), 1);
+        while(MarlinOutput.find("ok") != std::string::npos)
+            MarlinOutput.erase(MarlinOutput.find("ok"), 2);
+        
         //T:157.35/0.00B:56.56/0.00@:0B@:0
         //T:201/202B:117/120
         //T:201/202B:117/120C:49.3/50
@@ -259,6 +262,11 @@ class component_MarlinUART :
   
     void process_line() {
         
+        if(MarlinOutput.size() < 3) {
+            MarlinOutput="";
+            return;
+        }
+        
         ESP_LOGD(TAG, MarlinOutput.c_str() );
         
         // Auto reported temperature format without SHOW_TEMP_ADC_VALUES defined in Marlin configuration
@@ -274,10 +282,10 @@ class component_MarlinUART :
         // ok T0:110 /110 T1:23 /0 B:117 /120
         // ok T:20.2 /0.0 B:19.1 /0.0 T0:20.2 /0.0 @:0 B@:0 P:19.8 A:26.4
 
-        if(MarlinOutput.startsWith(String(" T:"))   || 
-           MarlinOutput.startsWith(String("T:"))    ||
-           MarlinOutput.startsWith(String("ok T:")) ||
-           MarlinOutput.startsWith(String(" ok T:"))   ) {
+        if(MarlinOutput.find(" T:") == 0     || 
+           MarlinOutput.find("T:") == 0      ||
+           MarlinOutput.find("ok T:") == 0   ||
+           MarlinOutput.find(" ok T:") == 0  ) {
 
             float extruderTemp, extruderSet, bedTemp, bedSet;
             if (process_tempfeedback(&extruderTemp, &extruderSet, &bedTemp, &bedSet) != 0)  {
@@ -301,16 +309,16 @@ class component_MarlinUART :
             MarlinOutput="";
             return;
         }
-        
+
         //SD printing byte 2467546/3281364
-       if(MarlinOutput.startsWith(String("SD printing byte "))) {
+       if(MarlinOutput.find("SD printing byte") == 0 ) {
             long current, total;
             
-            current = MarlinOutput.substring(17).toInt();
-            total = MarlinOutput.substring(MarlinOutput.indexOf('/')+1).toInt();
+            current = std::stoi(MarlinOutput.substr(17));
+            total = std::stoi(MarlinOutput.substr(MarlinOutput.find('/')+1));
             
-            //ESP_LOGD(TAG,String(current).c_str());
-            //ESP_LOGD(TAG,String(total).c_str());
+            // snprintf(buf, sizeof buf, "SD pos current: %ld  total: %ld", current, total); 
+            // ESP_LOGD(TAG,buf);
             
             if (total==0)  {
                 sensor_progress->publish_state(NAN);
@@ -327,11 +335,11 @@ class component_MarlinUART :
         
         //echo:Print time: 
         //echo:Print time: 3h 6m 49s
-       if(MarlinOutput.startsWith(String("echo:Print time: "))) {
+       if(MarlinOutput.find("echo:Print time: ") == 0) {
             int d=0, h=0, m=0, s=0;
             unsigned long current=0, remaining=0;
             
-            S_time = MarlinOutput.substring(16);
+            S_time = MarlinOutput.substr(16);
             
             //ESP_LOGD(TAG,S_time.c_str());
             
@@ -350,7 +358,9 @@ class component_MarlinUART :
             }
             
             current = d*24*60*60 + h*60*60 + m*60 + s;
-            //ESP_LOGD(TAG,String(current).c_str());
+            // snprintf(buf, sizeof buf, "Print Time current: %ld sec", current); 
+            // ESP_LOGD(TAG,buf);            
+            
             
             textsensor_elapsedTime->publish_state(S_time.c_str());
             
@@ -367,15 +377,13 @@ class component_MarlinUART :
                     remaining = total - current;  //use slicer estimate
                 
                 if (remaining > (60*60) ) {
-                    S_time = String( (float) remaining / 3600.0, 2);
-                    S_time += " Hours";
+                    snprintf(buf, sizeof buf, "%.2f Hours", (float) remaining / 3600.0); 
                 }
                 else  {
-                    S_time = String( (float) remaining / 60.0, 2);
-                    S_time += " Minutes";
+                    snprintf(buf, sizeof buf, "%.2f Minutes", (float) remaining / 60.0 ); 
                 }
                 
-                textsensor_remainingTime->publish_state(S_time.c_str());
+                textsensor_remainingTime->publish_state(buf);
             }           
             MarlinOutput="";
             return;
@@ -385,20 +393,21 @@ class component_MarlinUART :
         //State changes //////////////////////////////
         
         //action:prompt_begin FilamentRunout T0
-        if(MarlinOutput.indexOf(String("FilamentRunout")) != -1) {
+        if(MarlinOutput.find("FilamentRunout") != std::string::npos) {
             set_state(CMU_STATE_RUNOUT);
             MarlinOutput="";
             return;
         }
         
-        if(MarlinOutput.indexOf(String("paused")) != -1) {
+        if(MarlinOutput.find("paused") != std::string::npos) {
             if(state != CMU_STATE_RUNOUT) {
                 set_state(CMU_STATE_PAUSED);
             }
             MarlinOutput="";
             return;
         }
-        if(MarlinOutput.indexOf(String("Done printing")) != -1) {                
+
+        if(MarlinOutput.find("Done printing") != std::string::npos) {                
             set_state(CMU_STATE_FINISHED);
             textsensor_remainingTime->publish_state("0.00 Minutes");
             percentDone=100.0;
@@ -409,17 +418,17 @@ class component_MarlinUART :
         }
         
         //Set printing once preheat done or after pause/runnout
-        if(MarlinOutput.indexOf(String("resume")) != -1) {
+        if(MarlinOutput.find("resume") != std::string::npos) {
             set_state(CMU_STATE_PRINTING);
             MarlinOutput="";
             return;
         }
 
-        //Estimated print time 00:44:14;
-        //Estimated print time 27:57:55;
-        if(MarlinOutput.startsWith(String("Estimated print time "))) {
+        //Estimated print time 00:44:14
+        //Estimated print time 27:57:55
+        if(MarlinOutput.find("Estimated print time ") == 0) {
             int h=0, m=0, s=0;
-            S_time = MarlinOutput.substring(20);
+            S_time = MarlinOutput.substr(20);
             
             //ESP_LOGD(TAG,S_time.c_str());
             
@@ -428,17 +437,18 @@ class component_MarlinUART :
                 MarlinOutput="";
                 return;
             }
-            
             total = h*60*60 + m*60 + s;
+            MarlinOutput="";
+            return;
         }
 
-        if(MarlinOutput.indexOf(String("Printer halted")) != -1) {                
+        if(MarlinOutput.find("Printer halted") != std::string::npos) {                
             set_state(CMU_STATE_HALTED);
             MarlinOutput="";
             return;
         }
 
-        if(MarlinOutput.indexOf(String("Print Aborted")) != -1) {                
+        if(MarlinOutput.find("Print Aborted") != std::string::npos) {                
             set_state(CMU_STATE_ABORT);
             MarlinOutput="";
             return;
